@@ -229,9 +229,9 @@ end
 """
     eval_SC(SChat::AbstractArray, SC::AbstractArray)
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Ideally the target words have highest correlations on the diagonal
-of the pertinent correlation matrices.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices.
 
 If `freq` is added, token-based accuracy is computed. Token-based accuracy weighs accuracy values according to words' frequency, i.e. if a word has a frequency of 30 and overall there are 3000 tokens (the frequencies of all types sum to 3000), this token's accuracy will contribute 30/3000.
 
@@ -244,8 +244,9 @@ If `freq` is added, token-based accuracy is computed. Token-based accuracy weigh
 
 # Optional Arguments
 - `digits`: the specified number of digits after the decimal place (or before if negative)
-- `R::Bool=false`: if true, pairwise correlation matrix R is return
+- `R::Bool=false`: if true, pairwise correlation/distance/similarity matrix R is return
 - `freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing`: list of frequencies of the wordforms in X and Y
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC(Chat_train, cue_obj_train.C)
@@ -255,18 +256,37 @@ eval_SC(Shat_val, S_val)
 ```
 """
 function eval_SC(SChat::AbstractArray, SC::AbstractArray; digits=4, R=false,
-    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing)
+    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing,
+    method::Union{Symbol, String}=:correlation)
 
     if size(unique(SC, dims=1), 1) != size(SC, 1)
         @warn "eval_SC: The C or S matrix contains duplicate vectors (usually because of homophones/homographs). Supplying the dataset and target column is recommended for a realistic evaluation. See the documentation of this function for more information."
     end
 
-    rSC = cor(
-        convert(Matrix{Float64}, SChat),
-        convert(Matrix{Float64}, SC),
-        dims = 2,
-    )
-    v = [rSC[i[1], i[1]] == rSC[i] ? 1 : 0 for i in argmax(rSC, dims = 2)]
+    if method == :correlation || method == "correlation"
+        rSC = cor(
+            convert(Matrix{Float64}, SChat),
+            convert(Matrix{Float64}, SC),
+            dims = 2,
+        )
+        v = [rSC[i[1], i[1]] == rSC[i] ? 1 : 0 for i in argmax(rSC, dims = 2)]
+    elseif method == :euclidean || method == "euclidean"
+        rSC = Distances.pairwise(Euclidean(),
+                                convert(Matrix{Float64}, SChat),
+                                convert(Matrix{Float64}, SC),
+                                dims=1)
+        v = [rSC[i[1], i[1]] == rSC[i] ? 1 : 0 for i in argmin(rSC, dims = 2)]
+    elseif method == :cosine || method == "cosine"
+        dists = Distances.pairwise(CosineDist(),
+                                    convert(Matrix{Float64}, SChat),
+                                    convert(Matrix{Float64}, SC),
+                                    dims=1)
+        rSC = - dists .+1
+        v = [rSC[i[1], i[1]] == rSC[i] ? 1 : 0 for i in argmax(rSC, dims = 2)]
+    else
+        @error "Method unknown. Select one of {:correlation, :euclidean, :cosine}"
+    end
+
     if !ismissing(freq)
         v .*= freq
         acc = round(sum(v) / sum(freq), digits=digits)
@@ -283,9 +303,9 @@ end
 """
     eval_SC(SChat::AbstractArray, SC::AbstractArray, SC_rest::AbstractArray)
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Ideally the target words have highest correlations on the diagonal
-of the pertinent correlation matrices.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices.
 
 If `freq` is added, token-based accuracy is computed. Token-based accuracy weighs accuracy values according to words' frequency, i.e. if a word has a frequency of 30 and overall there are 3000 tokens (the frequencies of all types sum to 3000), this token's accuracy will contribute 30/3000.
 
@@ -303,8 +323,9 @@ If `freq` is added, token-based accuracy is computed. Token-based accuracy weigh
 
 # Optional Arguments
 - `digits`: the specified number of digits after the decimal place (or before if negative)
-- `R::Bool=false`: if true, pairwise correlation matrix R is return
+- `R::Bool=false`: if true, pairwise correlation/distance/similarity matrix R is return
 - `freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing`: list of frequencies of the wordforms in X and Y
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC(Chat_train, cue_obj_train.C, cue_obj_val.C)
@@ -319,19 +340,20 @@ function eval_SC(
     SC_rest::AbstractArray;
     digits = 4,
     R = false,
-    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing
+    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing,
+    method::Union{Symbol, String}=:correlation
     )
 
-    eval_SC(SChat, vcat(SC, SC_rest); digits=digits, R=R, freq=freq)
+    eval_SC(SChat, vcat(SC, SC_rest); digits=digits, R=R, freq=freq, method=method)
 end
 
 
 """
     eval_SC(SChat::AbstractArray, SC::AbstractArray, data::DataFrame, target_col::Union{String, Symbol})
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Ideally the target words have highest correlations on the diagonal
-of the pertinent correlation matrices. Support for homophones.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices. Support for homophones.
 
 If `freq` is added, token-based accuracy is computed. Token-based accuracy weighs accuracy values according to words' frequency, i.e. if a word has a frequency of 30 and overall there are 3000 tokens (the frequencies of all types sum to 3000), this token's accuracy will contribute 30/3000.
 
@@ -343,8 +365,9 @@ If `freq` is added, token-based accuracy is computed. Token-based accuracy weigh
 
 # Optional Arguments
 - `digits`: the specified number of digits after the decimal place (or before if negative)
-- `R::Bool=false`: if true, pairwise correlation matrix R is return
+- `R::Bool=false`: if true, pairwise correlation/distance/similarity matrix R is return
 - `freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing`: list of frequencies of the wordforms in X and Y
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC(Chat_train, cue_obj_train.C, latin, :Word)
@@ -360,18 +383,43 @@ function eval_SC(
     target_col::Union{String, Symbol};
     digits = 4,
     R = false,
-    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing
+    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing,
+    method::Union{Symbol, String}=:correlation
     )
 
-    rSC = cor(
-        convert(Matrix{Float64}, SChat),
-        convert(Matrix{Float64}, SC),
-        dims = 2,
-    )
-    v = [
-        data[i[1], target_col] == data[i[2], target_col] ? 1 : 0
-        for i in argmax(rSC, dims = 2)
-    ]
+    if method == :correlation || method == "correlation"
+        rSC = cor(
+            convert(Matrix{Float64}, SChat),
+            convert(Matrix{Float64}, SC),
+            dims = 2,
+        )
+        v = [
+            data[i[1], target_col] == data[i[2], target_col] ? 1 : 0
+            for i in argmax(rSC, dims = 2)
+        ]
+    elseif method == :euclidean || method == "euclidean"
+        rSC = Distances.pairwise(Euclidean(),
+                                convert(Matrix{Float64}, SChat),
+                                convert(Matrix{Float64}, SC),
+                                dims=1)
+        v = [
+            data[i[1], target_col] == data[i[2], target_col] ? 1 : 0
+            for i in argmin(rSC, dims = 2)
+        ]
+    elseif method == :cosine || method == "cosine"
+        dists = Distances.pairwise(CosineDist(),
+                                    convert(Matrix{Float64}, SChat),
+                                    convert(Matrix{Float64}, SC),
+                                    dims=1)
+        rSC = - dists .+1
+        v = [
+            data[i[1], target_col] == data[i[2], target_col] ? 1 : 0
+            for i in argmax(rSC, dims = 2)
+        ]
+    else
+        @error "Method unknown. Select one of {:correlation, :euclidean, :cosine}"
+    end
+
     if !ismissing(freq)
         v .*= freq
         acc = round(sum(v) / sum(freq), digits=digits)
@@ -388,14 +436,14 @@ end
 """
     eval_SC(SChat::AbstractArray, SC::AbstractArray, SC_rest::AbstractArray, data::DataFrame, data_rest::DataFrame, target_col::Union{String, Symbol})
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Ideally the target words have highest correlations on the diagonal
-of the pertinent correlation matrices.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices.
 
 If `freq` is added, token-based accuracy is computed. Token-based accuracy weighs accuracy values according to words' frequency, i.e. if a word has a frequency of 30 and overall there are 3000 tokens (the frequencies of all types sum to 3000), this token's accuracy will contribute 30/3000.
 
 !!! note
-    The order is important. The fist gold standard matrix has to be corresponing
+    The order is important. The first gold standard matrix has to be corresponing
     to the SChat matrix, such as `eval_SC(Shat_train, S_train, S_val, latin, :Word)`
     or `eval_SC(Shat_val, S_val, S_train, latin, :Word)`
 
@@ -409,8 +457,9 @@ If `freq` is added, token-based accuracy is computed. Token-based accuracy weigh
 
 # Optional Arguments
 - `digits`: the specified number of digits after the decimal place (or before if negative)
-- `R::Bool=false`: if true, pairwise correlation matrix R is return
+- `R::Bool=false`: if true, pairwise correlation/distance/similarity matrix R is return
 - `freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing`: list of frequencies of the wordforms in X and Y
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC(Chat_train, cue_obj_train.C, cue_obj_val.C, latin, :Word)
@@ -428,7 +477,8 @@ function eval_SC(
     target_col::Union{String, Symbol};
     digits = 4,
     R = false,
-    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing
+    freq::Union{Missing, Array{Int64, 1}, Array{Float64,1}}=missing,
+    method::Union{Symbol, String}=:correlation
     )
 
     n_data = size(data, 1)
@@ -457,7 +507,8 @@ function eval_SC(
         target_col,
         digits = digits,
         R = R,
-        freq=freq
+        freq=freq,
+        method=method
         )
 end
 
@@ -471,6 +522,9 @@ process evaluation in chunks.
 
 !!! note
     If there are homophones/homographs in the dataset, this evaluation method may be misleading: the predicted vector will be equally correlated with the target vector of both words and the one on the diagonal will not necessarily be selected as the most correlated. In such cases, supplying the dataset and target_col is recommended which enables taking into account homophones/homographs.
+
+!!! note
+    Currently only available for correlation.
 
 # Obligatory Arguments
 - `SChat`: the Chat or Shat matrix
@@ -543,6 +597,9 @@ C or Shat and S. Ideally the target words have highest correlations on the diago
 of the pertinent correlation matrices. For large datasets, pass batch_size to
 process evaluation in chunks. Support homophones.
 
+!!! note
+    Currently only available for correlation.
+
 # Obligatory Arguments
 - `SChat::AbstractArray`: the Chat or Shat matrix
 - `SC::AbstractArray`: the C or S matrix
@@ -614,11 +671,6 @@ function eval_SC_chunks(SChat, SC, s, e, batch_size)
     sum(v)
 end
 
-function eval_SC_chucks(SChat, SC, s, e, batch_size)
-    @warn "eval_SC_chucks is deprecated and will be removed in version 0.10 in favour of eval_SC_chunks"
-    eval_SC_chunks(SChat, SC, s, e, batch_size)
-end
-
 function eval_SC_chunks(SChat, SC, s, e, batch_size, data, target_col)
     rSC = cor(SChat[s:e, :], SC, dims = 2)
     v = [
@@ -628,20 +680,10 @@ function eval_SC_chunks(SChat, SC, s, e, batch_size, data, target_col)
     sum(v)
 end
 
-function eval_SC_chucks(SChat, SC, s, e, batch_size, data, target_col)
-    @warn "eval_SC_chucks is deprecated and will be removed in version 0.10 in favour of eval_SC_chunks"
-    eval_SC_chunks(SChat, SC, s, e, batch_size, data, target_col)
-end
-
 function eval_SC_chunks(SChat, SC, s, batch_size)
     rSC = cor(SChat[s:end, :], SC, dims = 2)
     v = [(rSC[i[1], i[1]+s-1] == rSC[i]) ? 1 : 0 for i in argmax(rSC, dims = 2)]
     sum(v)
-end
-
-function eval_SC_chucks(SChat, SC, s, batch_size)
-    @warn "eval_SC_chucks is deprecated and will be removed in version 0.10 in favour of eval_SC_chunks"
-    eval_SC_chunks(SChat, SC, s, batch_size)
 end
 
 function eval_SC_chunks(SChat, SC, s, batch_size, data, target_col)
@@ -653,20 +695,15 @@ function eval_SC_chunks(SChat, SC, s, batch_size, data, target_col)
     sum(v)
 end
 
-function eval_SC_chucks(SChat, SC, s, batch_size, data, target_col)
-    @warn "eval_SC_chucks is deprecated and will be removed in version 0.10 in favour of eval_SC_chunks"
-    eval_SC_chunks(SChat, SC, s, batch_size, data, target_col)
-end
-
 """
     eval_SC_loose(SChat, SC, k)
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Count it as correct if one of the top k candidates is correct.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices. Count it as correct if one of the top k candidates is correct.
 
 !!! note
     If there are homophones/homographs in the dataset, this evaluation method may be misleading: the predicted vector will be equally correlated with the target vector of both words and it is not guaranteed that the target on the diagonal will be among the k neighbours. In particular, `eval_SC` and `eval_SC_loose` with k=1 are not guaranteed to give the same result. In such cases, supplying the dataset and `target_col` is recommended which enables taking into account homophones/homographs.
-
 
 # Obligatory Arguments
 - `SChat::Union{SparseMatrixCSC, Matrix}`: the Chat or Shat matrix
@@ -675,13 +712,15 @@ C or Shat and S. Count it as correct if one of the top k candidates is correct.
 
 # Optional Arguments
 - `digits`: the specified number of digits after the decimal place (or before if negative)
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC_loose(Chat, cue_obj.C, k)
 eval_SC_loose(Shat, S, k)
 ```
 """
-function eval_SC_loose(SChat, SC, k; digits=4)
+function eval_SC_loose(SChat, SC, k; digits=4,
+                       method::Union{Symbol, String}=:correlation)
 
     if size(unique(SC, dims=1), 1) != size(SC, 1)
         @warn "eval_SC_loose: The C or S matrix contains duplicate vectors (usually because of homophones/homographs). Supplying the dataset and target column is recommended for a realistic evaluation. See the documentation of this function for more information."
@@ -692,14 +731,33 @@ function eval_SC_loose(SChat, SC, k; digits=4)
 
     total = size(SChat, 1)
     correct = 0
-    rSC = cor(
-        convert(Matrix{Float64}, SChat),
-        convert(Matrix{Float64}, SC),
-        dims = 2,
-    )
+    rev = false
+
+    if method == :correlation || method == "correlation"
+        rSC = cor(
+            convert(Matrix{Float64}, SChat),
+            convert(Matrix{Float64}, SC),
+            dims = 2,
+        )
+        rev = true
+    elseif method == :euclidean || method == "euclidean"
+        rSC = Distances.pairwise(Euclidean(),
+                                convert(Matrix{Float64}, SChat),
+                                convert(Matrix{Float64}, SC),
+                                dims=1)
+    elseif method == :cosine || method == "cosine"
+        dists = Distances.pairwise(CosineDist(),
+                                    convert(Matrix{Float64}, SChat),
+                                    convert(Matrix{Float64}, SC),
+                                    dims=1)
+        rSC = - dists .+1
+        rev = true
+    else
+        @error "Method unknown. Select one of {:correlation, :euclidean, :cosine}"
+    end
 
     for i = 1:total
-        p = partialsortperm(rSC[i, :], 1:k, rev = true)
+        p = partialsortperm(rSC[i, :], 1:k, rev = rev)
         if i in p
             correct += 1
         end
@@ -710,8 +768,9 @@ end
 """
     eval_SC_loose(SChat, SC, k, data, target_col)
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Count it as correct if one of the top k candidates is correct.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices. Count it as correct if one of the top k candidates is correct.
 Support for homophones.
 
 # Obligatory Arguments
@@ -723,23 +782,44 @@ Support for homophones.
 
 # Optional Arguments
 - `digits`: the specified number of digits after the decimal place (or before if negative)
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC_loose(Chat, cue_obj.C, k, latin, :Word)
 eval_SC_loose(Shat, S, k, latin, :Word)
 ```
 """
-function eval_SC_loose(SChat, SC, k, data, target_col; digits=4)
+function eval_SC_loose(SChat, SC, k, data, target_col; digits=4,
+                        method::Union{Symbol, String}=:correlation)
     total = size(SChat, 1)
     correct = 0
-    rSC = cor(
-        convert(Matrix{Float64}, SChat),
-        convert(Matrix{Float64}, SC),
-        dims = 2,
-    )
+    rev = false
+
+    if method == :correlation || method == "correlation"
+        rSC = cor(
+            convert(Matrix{Float64}, SChat),
+            convert(Matrix{Float64}, SC),
+            dims = 2,
+        )
+        rev = true
+    elseif method == :euclidean || method == "euclidean"
+        rSC = Distances.pairwise(Euclidean(),
+                                convert(Matrix{Float64}, SChat),
+                                convert(Matrix{Float64}, SC),
+                                dims=1)
+    elseif method == :cosine || method == "cosine"
+        dists = Distances.pairwise(CosineDist(),
+                                    convert(Matrix{Float64}, SChat),
+                                    convert(Matrix{Float64}, SC),
+                                    dims=1)
+        rSC = - dists .+1
+        rev = true
+    else
+        @error "Method unknown. Select one of {:correlation, :euclidean, :cosine}"
+    end
 
     for i = 1:total
-        p = partialsortperm(rSC[i, :], 1:k, rev = true)
+        p = partialsortperm(rSC[i, :], 1:k, rev = rev)
         if i in p
             correct += 1
         else
@@ -755,8 +835,9 @@ end
 """
     eval_SC_loose(SChat, SC, SC_rest, k; digits=4)
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Count it as correct if one of the top k candidates is correct.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices. Count it as correct if one of the top k candidates is correct.
 Does not consider homophones.
 Takes into account gold-standard vectors in both the actual targets (SC)
 as well as in a second matrix (e.g. the training or validation data; SC_rest).
@@ -769,22 +850,25 @@ as well as in a second matrix (e.g. the training or validation data; SC_rest).
 
 # Optional Arguments
 - `digits=4`: the specified number of digits after the decimal place (or before if negative)
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, k)
 eval_SC_loose(Shat_val, S_val, S_train, k)
 ```
 """
-function eval_SC_loose(SChat, SC, SC_rest, k; digits=4)
+function eval_SC_loose(SChat, SC, SC_rest, k; digits=4,
+                        method::Union{Symbol, String}=:correlation)
  SC_combined = vcat(SC, SC_rest)
- eval_SC_loose(SChat, SC_combined, k, digits=digits)
+ eval_SC_loose(SChat, SC_combined, k, digits=digits, method=method)
 end
 
 """
     eval_SC_loose(SChat, SC, SC_rest, k, data, data_rest, target_col; digits=4)
 
-Assess model accuracy on the basis of the correlations of row vectors of Chat and
-C or Shat and S. Count it as correct if one of the top k candidates is correct.
+Assess model accuracy on the basis of the correlations (or Euclidean distances or Cosine Similarities) of row vectors of Chat and
+C or Shat and S. Ideally the target words have highest correlations (lowest distance/highest similarity) on the diagonal
+of the pertinent correlation (distance/similarity) matrices. Count it as correct if one of the top k candidates is correct.
 Considers homophones.
 Takes into account gold-standard vectors in both the actual targets (SC)
 as well as in a second matrix (e.g. the training or validation data; SC_rest).
@@ -800,13 +884,16 @@ as well as in a second matrix (e.g. the training or validation data; SC_rest).
 
 # Optional Arguments
 - `digits=4`: the specified number of digits after the decimal place (or before if negative)
+- `method::Union{Symbol, String}=:correlation`: Method for computing similarities, one of {:correlation, :euclidean, :cosine}.
 
 ```julia
 eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, k, latin_val, latin_train, :Word)
 eval_SC_loose(Shat_val, S_val, S_train, k, latin_val, latin_train, :Word)
 ```
 """
-function eval_SC_loose(SChat, SC, SC_rest, k, data, data_rest, target_col; digits=4)
+function eval_SC_loose(SChat, SC, SC_rest, k, data, data_rest, target_col; digits=4,
+    method::Union{Symbol, String}=:correlation)
+
     SC_combined = vcat(SC, SC_rest)
 
     n_data = size(data, 1)
@@ -828,7 +915,7 @@ function eval_SC_loose(SChat, SC, SC_rest, k, data, data_rest, target_col; digit
     append!(data_combined, data, promote=true)
     append!(data_combined, data_rest, promote=true)
 
-    eval_SC_loose(SChat, SC_combined, k, data_combined, target_col, digits=digits)
+    eval_SC_loose(SChat, SC_combined, k, data_combined, target_col, digits=digits, method=method)
 end
 
 """

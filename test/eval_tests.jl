@@ -2,6 +2,13 @@ using JudiLing
 using CSV
 using Test
 using DataFrames
+using LinearAlgebra
+
+function cosine(a, b)
+    d = sum(a .* b)
+    e = sqrt(sum(a.^2)) * sqrt(sum(b.^2))
+    return d/e
+end
 
 @testset "eval_SC" begin
     A = [
@@ -52,6 +59,32 @@ using DataFrames
     @test JudiLing.eval_SC(A, B, 4) == 0.9
     @test JudiLing.eval_SC(A, C, 2) == 0.6
     @test JudiLing.eval_SC(C, B, 2) == 0.7
+
+    @test JudiLing.eval_SC(A, B, method=:euclidean) == 0.9
+    @test JudiLing.eval_SC(A, B, method=:cosine) == 0.9
+    @test JudiLing.eval_SC(A, C, method=:euclidean) == 0.6
+    @test JudiLing.eval_SC(A, C, method=:cosine) == 0.6
+    @test JudiLing.eval_SC(C, B, method=:euclidean) == 0.7
+    @test JudiLing.eval_SC(C, B, method=:cosine) == 0.7
+
+    _, RSc_cor = JudiLing.eval_SC(A, B, R=true)
+    _, RSc_eucl = JudiLing.eval_SC(A, B, R=true, method=:euclidean)
+    _, RSc_cos = JudiLing.eval_SC(A, B, R=true, method=:cosine)
+    @test RSc_cor != RSc_eucl != RSc_cos
+
+    @test RSc_eucl[1, 2] == sqrt(sum((A[1,:] .- B[2,:]).^2))
+    @test RSc_eucl[5, 3] == sqrt(sum((A[5,:] .- B[3,:]).^2))
+
+    @test RSc_cos[1, 2] == cosine(A[1,:], B[2,:])
+    @test RSc_cos[5, 3] == cosine(A[5,:], B[3,:])
+
+    _, RSc_cor = JudiLing.eval_SC(A, A, R=true)
+    _, RSc_eucl = JudiLing.eval_SC(A, A, R=true, method=:euclidean)
+    _, RSc_cos = JudiLing.eval_SC(A, A, R=true, method=:cosine)
+    @test diag(RSc_cor) == ones(10)
+    @test diag(RSc_eucl) == zeros(10)
+    @test diag(RSc_cos) == ones(10)
+
 end
 
 @testset "eval_SC homophone" begin
@@ -80,6 +113,20 @@ end
     @test JudiLing.eval_SC(Chat, cue_obj.C, data, :A) == 1
     @test JudiLing.eval_SC(Chat, cue_obj.C, data, :A, 2) == 1
     @test JudiLing.eval_SC(Chat, cue_obj.C, data, :A, 3) == 1
+
+    @test JudiLing.eval_SC(Chat, cue_obj.C, data, :A, method=:cosine) == 1
+
+    @test JudiLing.eval_SC(Chat, cue_obj.C, data, :A, method=:euclidean) == 1
+
+    _, RSc_eucl = JudiLing.eval_SC(Chat, cue_obj.C, data, :A, method=:euclidean, R=true)
+    _, RSc_cos = JudiLing.eval_SC(Chat, cue_obj.C, data, :A, method=:cosine, R=true)
+    @test RSc_eucl != RSc_cos
+
+    @test RSc_eucl[1, 2] ≈ sqrt(sum((Chat[1,:] .- cue_obj.C[2,:]).^2))
+    @test RSc_eucl[4, 3] ≈ sqrt(sum((Chat[4,:] .- cue_obj.C[3,:]).^2))
+
+    @test RSc_cos[1, 2] ≈ cosine(Chat[1,:], cue_obj.C[2,:])
+    @test RSc_cos[4, 3] ≈ cosine(Chat[4,:], cue_obj.C[3,:])
 end
 
 @testset "eval_SC_loose" begin
@@ -110,16 +157,20 @@ end
     F = JudiLing.make_transform_matrix(cue_obj.C, S)
     Shat = cue_obj.C * F
 
-    @test JudiLing.eval_SC_loose(Chat, cue_obj.C, 1) == 0.75
-    @test JudiLing.eval_SC_loose(Shat, S, 1) == 0.75
-    @test JudiLing.eval_SC_loose(Chat, cue_obj.C, 1, latin, :Word) == 1
-    @test JudiLing.eval_SC_loose(Shat, S, 1, latin, :Word) == 1
+    for method in [:correlation, :euclidean, :cosine]
+        @test JudiLing.eval_SC_loose(Chat, cue_obj.C, 1, method=method) == 0.75
+        @test JudiLing.eval_SC_loose(Shat, S, 1, method=method) == 0.75
+        @test JudiLing.eval_SC_loose(Chat, cue_obj.C, 1, latin, :Word, method=method) == 1
+        @test JudiLing.eval_SC_loose(Shat, S, 1, latin, :Word, method=method) == 1
+    end
 
     for k = 2:4
-        @test JudiLing.eval_SC_loose(Chat, cue_obj.C, k) == 1
-        @test JudiLing.eval_SC_loose(Shat, S, k) == 1
-        @test JudiLing.eval_SC_loose(Chat, cue_obj.C, k, latin, :Word) == 1
-        @test JudiLing.eval_SC_loose(Shat, S, k, latin, :Word) == 1
+        for method in [:correlation, :euclidean, :cosine]
+            @test JudiLing.eval_SC_loose(Chat, cue_obj.C, k, method=method) == 1
+            @test JudiLing.eval_SC_loose(Shat, S, k, method=method) == 1
+            @test JudiLing.eval_SC_loose(Chat, cue_obj.C, k, latin, :Word, method=method) == 1
+            @test JudiLing.eval_SC_loose(Shat, S, k, latin, :Word, method=method) == 1
+        end
     end
 
     latin_train = DataFrame(
@@ -160,15 +211,51 @@ end
     Shat_val = cue_obj_val.C * F
     Shat_train = cue_obj_train.C * F
 
-    @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 1) >= 0.5
-    @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 2) == 1
-    @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 1) >= 0.5
-    @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 2) == 1
-    @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 1, latin_val, latin_train, :Word) == 1
-    @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 2, latin_val, latin_train, :Word) == 1
-    @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 1, latin_val, latin_train, :Word) == 1
-    @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 2, latin_val, latin_train, :Word) == 1
+    for method in [:correlation, :euclidean, :cosine]
+        @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 1, method=method) >= 0.5
+        @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 2, method=method) == 1
+        @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 1, method=method) >= 0.5
+        @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 2, method=method) == 1
+        @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 1, latin_val, latin_train, :Word, method=method) == 1
+        @test JudiLing.eval_SC_loose(Chat_val, cue_obj_val.C, cue_obj_train.C, 2, latin_val, latin_train, :Word, method=method) == 1
+        @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 1, latin_val, latin_train, :Word, method=method) == 1
+        @test JudiLing.eval_SC_loose(Shat_val, S_val, S_train, 2, latin_val, latin_train, :Word, method=method) == 1
+    end
 
+end
+
+
+@testset "correlation_vs_cosine_vs_euclidean" begin
+    A = [
+         2 3
+         20 10
+         ]
+    B = [
+         2 1
+         10 15
+         ]
+
+    acc_cor, RSc_cor = JudiLing.eval_SC(A, B, method=:correlation, R=true)
+    acc_eucl, RSc_eucl = JudiLing.eval_SC(A, B, method=:euclidean, R=true)
+    acc_cos, RSc_cos = JudiLing.eval_SC(A, B, method=:cosine, R=true)
+    @test acc_cor == 0.
+    @test acc_eucl == 1.
+    @test acc_cos == 0.
+    @test RSc_cor != RSc_eucl != RSc_cos
+
+    acc_cor = JudiLing.eval_SC_loose(A, B, 1, method=:correlation)
+    acc_eucl = JudiLing.eval_SC_loose(A, B, 1, method=:euclidean)
+    acc_cos, = JudiLing.eval_SC_loose(A, B, 1, method=:cosine)
+    @test acc_cor == 0.
+    @test acc_eucl == 1.
+    @test acc_cos == 0.
+
+    acc_cor = JudiLing.eval_SC_loose(A, B, 2, method=:correlation)
+    acc_eucl = JudiLing.eval_SC_loose(A, B, 2, method=:euclidean)
+    acc_cos, = JudiLing.eval_SC_loose(A, B, 2, method=:cosine)
+    @test acc_cor == 1.
+    @test acc_eucl == 1.
+    @test acc_cos == 1.
 end
 
 @testset "token_accuracy" begin
